@@ -131,7 +131,8 @@ def find_mri_series_paths(patient_id, scans_dir):
     return {key: str(path.path) if path else None for key, path in series_paths.items()}
 
 
-def map_and_clean_data(data_path, general_metadata_path, radiology_metadata_path, ai_score_path, scans_dir, exclude_patient_ids=[], exception_patient_ids=[]):
+def map_and_clean_data(data_path, general_metadata_path, radiology_metadata_path, ai_score_path, scans_dir,
+                       exclude_patient_ids=[], exclude_patient_performance_ids=[], exception_patient_ids=[], additional_technical_issues_ids=[]):
     """
     Prepare the data to be able to use later.
     Maps values in the main data to their corresponding descriptions using general
@@ -144,11 +145,14 @@ def map_and_clean_data(data_path, general_metadata_path, radiology_metadata_path
         radiology_metadata_path (str): Path to the metadata Excel file for radiology evaluation.
         ai_score_path (str): Path to the manual AI scores Excel file.
         scans_dir (str): Path to the master folder containing mpMRI scans.
-        exclude_patient_ids (list): List of Patient IDs to exclude from the final data.
+        exclude_patient_ids (list): List of Patient IDs to exclude overall from the final data.
+        exclude_patient_performance_ids (list): List of Patient IDs to exclude from performance analysis.
         exception_patient_ids (list): Patient IDs to retain regardless of `HasCompletedStudy` status.
+        additional_technical_issues_ids (list): A list of additional patient IDs that faced technical issues.
 
     Returns:
-        mapped_cleaned_data (pd.DataFrame): A cleaned, mapped, filtered, and sorted DataFrame.
+        mapped_cleaned_data (pd.DataFrame): A cleaned, mapped, filtered, and sorted DataFrame for performance analysis.
+        mapped_cleaned_data_for_feasability_safety (pd.DataFrame): A cleaned, mapped, filtered, and sorted DataFrame for feasibility and safety analysis.
     """
 
     # Read the main data and metadata from Excel files into DataFrames
@@ -202,17 +206,8 @@ def map_and_clean_data(data_path, general_metadata_path, radiology_metadata_path
         'ForskningsobjektUnikNokkel', as_index=False).agg(combine_values)
     grouped_data = grouped_data.copy()  # De-fragment DataFrame after aggregation
 
-    # Filter the data where 'HasCompletedStudy' is 'Yes', but allow exceptions
-
-    filtered_data = grouped_data[
-        (grouped_data['HasCompletedStudy'] == 'Yes') |
-        (grouped_data['PatientID'].isin(exception_patient_ids)) |
-        ((grouped_data['HasCompletedStudy'] == 'No')
-         & (grouped_data['HasLeftStudy'] == 'No'))
-    ]
-
     # Exclude rows where 'PatientID' is in the exclude_patient_ids list
-    mapped_cleaned_data = filtered_data[~filtered_data['PatientID'].isin(
+    mapped_cleaned_data = grouped_data[~grouped_data['PatientID'].isin(
         exclude_patient_ids)]
 
     # Move 'PatientID' to the first column
@@ -274,7 +269,26 @@ def map_and_clean_data(data_path, general_metadata_path, radiology_metadata_path
     mapped_cleaned_data = pd.concat(
         [mapped_cleaned_data.reset_index(drop=True), new_columns_df], axis=1)
 
-    return mapped_cleaned_data
+    # Correct for technical issues
+    mapped_cleaned_data.loc[mapped_cleaned_data['PatientID'].isin(
+        additional_technical_issues_ids), 'HaveFacedTechnicalIssues'] = 'Yes'
+
+    # Keep for feasibility and safety analysis
+    mapped_cleaned_data_for_feasability_safety = mapped_cleaned_data.copy()
+
+    # Filter the data where 'HasCompletedStudy' is 'Yes', but allow exceptions
+    filtered_data = mapped_cleaned_data[
+        (mapped_cleaned_data['HasCompletedStudy'] == 'Yes') |
+        (mapped_cleaned_data['PatientID'].isin(exception_patient_ids)) |
+        ((mapped_cleaned_data['HasCompletedStudy'] == 'No')
+         & (mapped_cleaned_data['HasLeftStudy'] == 'No'))
+    ]
+
+    # Exclude rows where 'PatientID' is in the exclude_patient_performance_ids list
+    mapped_cleaned_data = filtered_data[~filtered_data['PatientID'].isin(
+        exclude_patient_performance_ids)]
+
+    return mapped_cleaned_data, mapped_cleaned_data_for_feasability_safety
 
 
 def correct_data(data):
@@ -302,33 +316,7 @@ def correct_data(data):
         # POT0018
         {"patient_id": "POT0018", "columns_to_delete": [
             "FindingSource4", "FindingSide4", "FindingRegion4", "FindingLocation4", "AIScore4"], "updates": {"FindingsNumber": 3}},
-        # 2. Deal with findings with thrshould less than 0.73 (used after correction in study)
-        # POT0001 > Finding 1
-        {"patient_id": "POT0001", "columns_to_delete": ["FindingSource1", "FindingSide1", "FindingRegion1", "FindingLocation1", "AIScore1",
-                                                        "LesionOverallGGGTargeted1", "NumberofCoresTargeted1", "TargetedBiopsySide1",
-                                                        "FindingAdditionalLocation1", "AdditionalSide1", "AdditionalRegion1", "AdditionalLocation1",
-                                                        "TargetedBiopsyRegion1", "TargetedBiopsyLocation1", "TargetedBiopsyAdditionalLocation1",
-                                                        "AdditionalTargetedBiopsySide1", "AdditionalTargetedBiopsyRegion1", "AdditionalTargetedBiopsyLocation1"],
-         "updates": {"NumberofTargetedBiopsies": 0, "FindingsNumber": 0}},
-        # POT0007 > Findings 1,2,and 3
-        {"patient_id": "POT0007", "columns_to_delete": ["FindingSource1", "FindingSide1", "FindingRegion1", "FindingLocation1", "AIScore1",
-                                                        "LesionOverallGGGTargeted1", "NumberofCoresTargeted1", "TargetedBiopsySide1",
-                                                        "FindingSource2", "FindingSide2", "FindingRegion2", "FindingLocation2", "AIScore2",
-                                                        "LesionOverallGGGTargeted2", "NumberofCoresTargeted2", "TargetedBiopsySide2",
-                                                        "FindingSource3", "FindingSide3", "FindingRegion3", "FindingLocation3", "AIScore3",
-                                                        "LesionOverallGGGTargeted3", "NumberofCoresTargeted3", "TargetedBiopsySide3"],
-         "updates": {"NumberofTargetedBiopsies": 0, "FindingsNumber": 0}},
-        # POT0010 > Finding 3
-        {"patient_id": "POT0010", "columns_to_delete": ["FindingSource3", "FindingSide3", "FindingRegion3", "FindingLocation3", "AIScore3",
-                                                        "LesionOverallGGGTargeted3", "NumberofCoresTargeted3", "TargetedBiopsySide3",
-                                                        "TargetedBiopsyRegion3", "TargetedBiopsyLocation3", "TargetedBiopsyAdditionalLocation3"],
-         "updates": {"NumberofTargetedBiopsies": 2, "FindingsNumber": 2}},
-        # POT0012 > Finding 2
-        {"patient_id": "POT0012", "columns_to_delete": ["FindingSource2", "FindingSide2", "FindingRegion2", "FindingLocation2", "AIScore2",
-                                                        "LesionOverallGGGTargeted2", "NumberofCoresTargeted2", "TargetedBiopsySide2",
-                                                        "TargetedBiopsyRegion2", "TargetedBiopsyLocation2", "TargetedBiopsyAdditionalLocation3"],
-         "updates": {"NumberofTargetedBiopsies": 1, "FindingsNumber": 1}},
-        # 3. Deal with when targeted biopsies more than radiological findings
+        # 2. Deal with when targeted biopsies more than radiological findings
         # POT0030 > Will delete targeted biopsy 3 and 4, but rest targeted biopsy 2 to have hoghest GG of the 3
         # and > AIScore2 correct incorrectly manually recorded AI Scores
         {"patient_id": "POT0030", "columns_to_delete": ["LesionOverallGGGTargeted3", "NumberofCoresTargeted3", "TargetedBiopsySide3",
@@ -336,12 +324,12 @@ def correct_data(data):
                                                         "LesionOverallGGGTargeted4", "NumberofCoresTargeted4", "TargetedBiopsySide4",
                                                         "TargetedBiopsyRegion4", "TargetedBiopsyLocation4", "TargetedBiopsyAdditionalLocation4"],
          "updates": {"NumberofTargetedBiopsies": 2, "LesionOverallGGGTargeted2": 1, "AIScore2": 0.7559}},
-        # 4. Deal with when targeted biopsies more than radiological findings
+        # 3. Deal with when targeted biopsies more than radiological findings
         # POT0056 > delete finding 2 (after checking)
         {"patient_id": "POT0056", "columns_to_delete": ["FindingSource2", "FindingSide2", "FindingRegion2", "FindingLocation2", "AIScore2",
                                                         "FindingAdditionalLocation2", "AdditionalSide2", "AdditionalRegion2", "AdditionalLocation2"],
          "updates": {"FindingsNumber": 1}},
-        # 5. Deal with incorrectly manually recorded AI Scores
+        # 4. Deal with incorrectly manually recorded AI Scores
         # POT0076 > AIScore3
         {"patient_id": "POT0076", "columns_to_delete": [],
             "updates": {"AIScore3": 0.7574}}
@@ -356,7 +344,8 @@ def correct_data(data):
     return corrected_data
 
 
-def prepare_data(data_path, general_metadata_path, radiology_metadata_path, ai_score_path, scans_dir, exclude_patient_ids=[], exception_patient_ids=[]):
+def prepare_data(data_path, general_metadata_path, radiology_metadata_path, ai_score_path, scans_dir,
+                 exclude_patient_ids=[], exclude_patient_performance_ids=[], exception_patient_ids=[], additional_technical_issues_ids=[]):
     """
     Wrapper function to prepare and correct the data and save it to an Excel file.
 
@@ -366,23 +355,26 @@ def prepare_data(data_path, general_metadata_path, radiology_metadata_path, ai_s
         radiology_metadata_path (str): Path to the metadata Excel file for radiology evaluation.
         ai_score_path (str): Path to the manual AI scores Excel file.
         scans_dir (str): Path to the master folder containing mpMRI scans.
-        exclude_patient_ids (list): List of Patient IDs to exclude from the final data.
-        - exception_patient_ids (list): Patient IDs to retain regardless of `HasCompletedStudy` status.
+        exclude_patient_ids (list): List of Patient IDs to exclude overall from the final data.
+        exclude_patient_performance_ids (list): List of Patient IDs to exclude from performance analysis.
+        exception_patient_ids (list): Patient IDs to retain regardless of `HasCompletedStudy` status.
+        additional_technical_issues_ids (list): A list of additional patient IDs that faced technical issues.
 
     Returns:
         prepared_data (pd.DataFrame): prepared, corrected data.
+        mapped_cleaned_data_for_feasability_safety (pd.DataFrame): A cleaned, mapped, filtered, and sorted DataFrame for feasibility and safety analysis.
     """
     # Prepare data by mapping and cleaning
-    mapped_cleaned_data = map_and_clean_data(
+    mapped_cleaned_data, mapped_cleaned_data_for_feasability_safety = map_and_clean_data(
         data_path, general_metadata_path, radiology_metadata_path, ai_score_path, scans_dir,
-        exclude_patient_ids, exception_patient_ids
+        exclude_patient_ids, exclude_patient_performance_ids, exception_patient_ids, additional_technical_issues_ids
     )
     # Correct mistakes
     corrected_data = correct_data(mapped_cleaned_data)
 
     prepared_data = corrected_data
 
-    return prepared_data
+    return prepared_data, mapped_cleaned_data_for_feasability_safety
 
 
 def prepare_adjusted_data(prepared_data, optimized_threshold):

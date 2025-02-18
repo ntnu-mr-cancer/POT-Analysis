@@ -107,7 +107,7 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
             return thresholds_ai[idx] if idx != -1 else None
 
     operating_points = {
-        'Prospective thd': 0.73,
+        'Study thd': 0.73,
         'Optimized thd': find_threshold(tpr_target=metrics_radiologist_3['Sensitivity (TPR)'])
     }
 

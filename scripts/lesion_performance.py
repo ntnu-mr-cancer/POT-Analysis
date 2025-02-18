@@ -411,12 +411,10 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
         ap_score_radiologist = average_precision_score(
             lesions_df['True_Label'], lesions_df['Radiologist_Score'])
 
-        # Plotting AP Curve with all methods
+        # Plotting AP Curve with AI
         plt.figure(figsize=(10, 8))
         plt.step(recall_ai, precision_ai, where='post', linestyle='-',
                  color='b', linewidth=2, label=f'AI AP = {ap_score_ai * 100:.2f}%')
-        plt.step(recall_radiologist, precision_radiologist, where='post', linestyle='--',
-                 color='r', linewidth=2, label=f'Radiologist AP = {ap_score_radiologist * 100:.2f}%')
 
         # Mark AI operating points on the AP plot
         for op_name, threshold in operating_points.items():

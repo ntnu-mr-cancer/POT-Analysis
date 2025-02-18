@@ -100,8 +100,9 @@ def create_output_directories(output_dir):
     return {subdir: output_dir / subdir for subdir in subdirs}
 
 
-def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_path, ai_score_path, scans_dir,
-                          output_dir, exclude_patient_ids=None, exception_patient_ids=None):
+def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_path, ai_score_path,
+                          scans_dir, output_dir, exclude_patient_ids=None, exclude_patient_performance_ids=None,
+                          exception_patient_ids=None, additional_technical_issues_ids=None):
     """
     Executes the full analysis pipeline for the Study.
 
@@ -113,7 +114,9 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         scans_dir (str): Path to the folder containing mpMRI scans.
         output_dir (str): Path to the folder where analysis results and output will be saved.
         exclude_patient_ids (list, optional): Patient IDs to exclude from the analysis.
+        exclude_patient_performance_ids (list, optional): Patient IDs to exclude from performance analysis.
         exception_patient_ids (list, optional): Patient IDs to include regardless of filters.
+        additional_technical_issues_ids (list, optional): Patient IDs with additional technical issues.
 
     Returns:
         None
@@ -128,9 +131,10 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
     try:
         # Step 1: Prepare data
         logging.info("Step 1: Preparing original data...")
-        prepared_data = prepare_data(
+        prepared_data, mapped_cleaned_data_for_feasability_safety = prepare_data(
             data_path, clinical_metadata_path, radiology_metadata_path,
-            ai_score_path, scans_dir, exclude_patient_ids, exception_patient_ids
+            ai_score_path, scans_dir, exclude_patient_ids, exclude_patient_performance_ids,
+            exception_patient_ids, additional_technical_issues_ids
         )
 
         # Step 2: Integrate MRI metadata
@@ -142,6 +146,8 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         # Save the prepared data to an Excel file
         save_dataframe_to_excel(
             prepared_data, paths['tables'] / "original_prepared_data.xlsx")
+        save_dataframe_to_excel(
+            mapped_cleaned_data_for_feasability_safety, paths['tables'] / "original_prepared_data_for_feasability_and_safety.xlsx")
 
         # Step 3: Generate characteristics statistics
         logging.info("Step 3: Generating characteristics statistics...")
@@ -158,11 +164,13 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         # Step 5: Analyze feasibility
         logging.info("Step 5: Analyzing feasibility...")
         analyze_feasibility(
-            prepared_data, paths['reports'] / "feasibility_analysis.log")
+            mapped_cleaned_data_for_feasability_safety,
+            paths['reports'] / "feasibility_analysis.log")
 
         # Step 6: Analyze safety
         logging.info("Step 6: Analyzing safety...")
-        analyze_safety(prepared_data, paths['reports'] / "safety_analysis.log")
+        analyze_safety(mapped_cleaned_data_for_feasability_safety,
+                       paths['reports'] / "safety_analysis.log")
 
         # Step 7: Evaluate patient-level performance
         logging.info("Step 7: Evaluating patient-level performance...")

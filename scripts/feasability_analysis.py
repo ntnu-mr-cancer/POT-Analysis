@@ -29,13 +29,26 @@ def analyze_feasibility(prepared_data, log_file="feasibility_analysis.log"):
         "HaveFacedTechnicalIssues": "No"
     }
 
+    # Identify unacceptable cases for each condition
+    cond_segmentation = (
+        ~(prepared_data['SegmentationAcceptable'].isna() |
+          (prepared_data['SegmentationAcceptable'] == ""))
+        & (prepared_data['SegmentationAcceptable'] != acceptable_conditions["SegmentationAcceptable"])
+    )
+    cond_alignment = (
+        ~(prepared_data['WasAlignmentAcceptable'].isna() |
+          (prepared_data['WasAlignmentAcceptable'] == ""))
+        & (prepared_data['WasAlignmentAcceptable'] != acceptable_conditions["WasAlignmentAcceptable"])
+    )
+    cond_technical = (
+        ~(prepared_data['HaveFacedTechnicalIssues'].isna() |
+          (prepared_data['HaveFacedTechnicalIssues'] == ""))
+        & (prepared_data['HaveFacedTechnicalIssues'] != acceptable_conditions["HaveFacedTechnicalIssues"])
+    )
+
     # Identify unacceptable cases
-    unacceptable_cases = prepared_data[
-        (prepared_data['SegmentationAcceptable'] != acceptable_conditions["SegmentationAcceptable"]) |
-        (prepared_data['WasAlignmentAcceptable'] != acceptable_conditions["WasAlignmentAcceptable"]) |
-        (prepared_data['HaveFacedTechnicalIssues'] !=
-         acceptable_conditions["HaveFacedTechnicalIssues"])
-    ]
+    unacceptable_cases = prepared_data[cond_segmentation |
+                                       cond_alignment | cond_technical]
 
     # Calculate summary metrics
     total_cases = len(prepared_data)

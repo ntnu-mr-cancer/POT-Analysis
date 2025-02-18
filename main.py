@@ -53,8 +53,18 @@ if __name__ == "__main__":
         )
 
         # Patient exclusions
-        exclude_patient_ids = ['POT0078', 'POT0050']
+        # Exclude patients with overall (from preliminary phase or if they withdrew consent)
+        exclude_patient_ids = ['POT0001', 'POT0002', 'POT0003', 'POT0004', 'POT0005', 'POT0006',
+                               'POT0007', 'POT0008', 'POT0009', 'POT0010', 'POT0011', 'POT0012', 'POT0013',
+                               'POT0034', 'POT0054', 'POT0070', 'POT0075', 'POT0078']
+        # Exclude patients from performance analysis (for not following the study protocol)
+        exclude_patient_performance_ids = ['POT0050']
+        # Cases to be exception from the exclusion
         exception_patient_ids = []
+
+        # Add to technical issues list
+        additional_technical_issues_ids = [
+            'POT0009', 'POT0018', 'POT0063', 'POT0073', 'POT0080', 'POT0102']
 
         # Run the analysis pipeline
         run_analysis_pipeline(
@@ -65,7 +75,9 @@ if __name__ == "__main__":
             scans_dir=str(paths["scans_dir"]),
             output_dir=str(paths["output_dir"]),
             exclude_patient_ids=exclude_patient_ids,
-            exception_patient_ids=exception_patient_ids
+            exclude_patient_performance_ids=exclude_patient_performance_ids,
+            exception_patient_ids=exception_patient_ids,
+            additional_technical_issues_ids=additional_technical_issues_ids
         )
         logging.info("<< Analysis pipeline completed successfully. >>")
 
