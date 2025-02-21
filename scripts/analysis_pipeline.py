@@ -49,7 +49,7 @@ def save_dataframe_to_excel(dataframe, file_path):
         logging.error(f"Failed to save data to {file_path}: {e}")
 
 
-def integrate_mri_metadata(prepared_data, tables_dir, reports_dir, metadata_file="mri_acquisition_metadata.xlsx"):
+def integrate_mri_metadata(prepared_data, tables_dir, reports_dir, metadata_file="mri_acquisition_metadata.xlsx", log_file="acquisition_parameters.log"):
     """
     Integrates MRI acquisition metadata into the prepared data.
 
@@ -58,6 +58,7 @@ def integrate_mri_metadata(prepared_data, tables_dir, reports_dir, metadata_file
         tables_dir (Path): Directory to look for and save the metadata file.
         reports_dir (Path): Directory to save reports.
         metadata_file (str, optional): Name of the metadata Excel file. Defaults to "mri_acquisition_metadata.xlsx".
+        log_file (str, optional): Name of the log file for extraction. Defaults to "acquisition_parameters.log".
 
     Returns:
         prepared_data (pd.DataFrame): The updated prepared_data with MRI scan dates.
@@ -69,7 +70,7 @@ def integrate_mri_metadata(prepared_data, tables_dir, reports_dir, metadata_file
     else:
         # If the metadata file doesn't exist, extract MRI parameters and save them
         metadata_table = extract_mri_acquisition_parameters(
-            prepared_data, reports_dir / "acquisition_parameters.log"
+            prepared_data, reports_dir / log_file
         )
         save_dataframe_to_excel(metadata_table, metadata_path)
 
@@ -140,12 +141,17 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         # Step 2: Integrate MRI metadata
         logging.info(
             "Step 2: Extracting and integrating MRI acquisition metadata...")
+        # Extract, integrate, and save MRI acquisition metadata for the cases used in performance analysis
         prepared_data = integrate_mri_metadata(
-            prepared_data, paths['tables'], paths['reports'])
+            prepared_data, paths['tables'], paths['reports'], "mri_acquisition_metadata.xlsx", "acquisition_parameters.log")
 
-        # Save the prepared data to an Excel file
         save_dataframe_to_excel(
             prepared_data, paths['tables'] / "original_prepared_data.xlsx")
+
+        # Extract, integrate, and save MRI acquisition metadata for the cases used in performance analysis
+        integrate_mri_metadata(
+            prepared_data, paths['tables'], paths['reports'], "mri_acquisition_metadata_for_all_cases.xlsx", "acquisition_parameters_for_all_cases.log")
+
         save_dataframe_to_excel(
             mapped_cleaned_data_for_feasability_safety, paths['tables'] / "original_prepared_data_for_feasability_and_safety.xlsx")
 
