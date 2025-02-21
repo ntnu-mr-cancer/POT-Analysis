@@ -132,7 +132,7 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
     try:
         # Step 1: Prepare data
         logging.info("Step 1: Preparing original data...")
-        prepared_data, mapped_cleaned_data_for_feasability_safety = prepare_data(
+        prepared_data, prepared_data_for_all_cases = prepare_data(
             data_path, clinical_metadata_path, radiology_metadata_path,
             ai_score_path, scans_dir, exclude_patient_ids, exclude_patient_performance_ids,
             exception_patient_ids, additional_technical_issues_ids
@@ -150,10 +150,10 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
 
         # Extract, integrate, and save MRI acquisition metadata for the cases used in performance analysis
         integrate_mri_metadata(
-            prepared_data, paths['tables'], paths['reports'], "mri_acquisition_metadata_for_all_cases.xlsx", "acquisition_parameters_for_all_cases.log")
+            prepared_data_for_all_cases, paths['tables'], paths['reports'], "mri_acquisition_metadata_for_all_cases.xlsx", "acquisition_parameters_for_all_cases.log")
 
         save_dataframe_to_excel(
-            mapped_cleaned_data_for_feasability_safety, paths['tables'] / "original_prepared_data_for_feasability_and_safety.xlsx")
+            prepared_data_for_all_cases, paths['tables'] / "original_prepared_data_for_feasability_and_safety.xlsx")
 
         # Step 3: Generate characteristics statistics
         logging.info("Step 3: Generating characteristics statistics...")
@@ -170,12 +170,12 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         # Step 5: Analyze feasibility
         logging.info("Step 5: Analyzing feasibility...")
         analyze_feasibility(
-            mapped_cleaned_data_for_feasability_safety,
+            prepared_data_for_all_cases,
             paths['reports'] / "feasibility_analysis.log")
 
         # Step 6: Analyze safety
         logging.info("Step 6: Analyzing safety...")
-        analyze_safety(mapped_cleaned_data_for_feasability_safety,
+        analyze_safety(prepared_data_for_all_cases,
                        paths['reports'] / "safety_analysis.log")
 
         # Step 7: Evaluate patient-level performance
