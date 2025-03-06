@@ -101,8 +101,8 @@ def create_output_directories(output_dir):
     return {subdir: output_dir / subdir for subdir in subdirs}
 
 
-def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_path, ai_score_path,
-                          scans_dir, output_dir, exclude_patient_ids=None, exclude_patient_performance_ids=None,
+def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_path, ai_score_path, scans_dir, output_dir,
+                          patient_piloting_phase_ids=None, patient_withdrew_consent_ids=None, exclude_patient_performance_ids=None,
                           exception_patient_ids=None, additional_technical_issues_ids=None):
     """
     Executes the full analysis pipeline for the Study.
@@ -114,7 +114,8 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         ai_score_path (str): Path to the manual Excel file for AI scores.
         scans_dir (str): Path to the folder containing mpMRI scans.
         output_dir (str): Path to the folder where analysis results and output will be saved.
-        exclude_patient_ids (list, optional): Patient IDs to exclude from the analysis.
+        patient_piloting_phase_ids (list, optional): Patient IDs from the piloting phase.
+        patient_withdrew_consent_ids (list, optional): Patient IDs who withdrew consent.
         exclude_patient_performance_ids (list, optional): Patient IDs to exclude from performance analysis.
         exception_patient_ids (list, optional): Patient IDs to include regardless of filters.
         additional_technical_issues_ids (list, optional): Patient IDs with additional technical issues.
@@ -122,7 +123,7 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
     Returns:
         None
     """
-    exclude_patient_ids = exclude_patient_ids or []
+    patient_withdrew_consent_ids = patient_withdrew_consent_ids or []
     exception_patient_ids = exception_patient_ids or []
 
     # Convert output directory to a Path object and create subdirectories
@@ -132,51 +133,92 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
     try:
         # Step 1: Prepare data
         logging.info("Step 1: Preparing original data...")
-        prepared_data, prepared_data_for_all_cases = prepare_data(
-            data_path, clinical_metadata_path, radiology_metadata_path,
-            ai_score_path, scans_dir, exclude_patient_ids, exclude_patient_performance_ids,
+        prepared_data_for_secondary_endpoint, prepared_data_for_primary_endpoints, prepared_data_for_piloting_phase = prepare_data(
+            data_path, clinical_metadata_path, radiology_metadata_path, ai_score_path, scans_dir,
+            patient_piloting_phase_ids, patient_withdrew_consent_ids, exclude_patient_performance_ids,
             exception_patient_ids, additional_technical_issues_ids
         )
 
         # Step 2: Integrate MRI metadata
         logging.info(
             "Step 2: Extracting and integrating MRI acquisition metadata...")
-        # Extract, integrate, and save MRI acquisition metadata for the cases used in performance analysis
-        prepared_data = integrate_mri_metadata(
-            prepared_data, paths['tables'], paths['reports'], "mri_acquisition_metadata.xlsx", "acquisition_parameters.log")
+
+        # Extract, integrate, and save MRI acquisition metadata for the cases used in piloting phase
+        prepared_data_for_piloting_phase = integrate_mri_metadata(
+            prepared_data_for_piloting_phase, paths['tables'], paths[
+                'reports'], "mri_acquisition_metadata_for_piloting_phase_cases.xlsx",
+            "acquisition_parameters_for_preliminary_phase_cases.log")
 
         save_dataframe_to_excel(
-            prepared_data, paths['tables'] / "original_prepared_data.xlsx")
+            prepared_data_for_piloting_phase, paths['tables'] / "original_prepared_data_for_piloting_phase_cases.xlsx")
 
-        # Extract, integrate, and save MRI acquisition metadata for the cases used in performance analysis
-        integrate_mri_metadata(
-            prepared_data_for_all_cases, paths['tables'], paths['reports'], "mri_acquisition_metadata_for_all_cases.xlsx", "acquisition_parameters_for_all_cases.log")
+        # Extract, integrate, and save MRI acquisition metadata for the cases used in primary endpoints analysis
+        prepared_data_for_primary_endpoints = integrate_mri_metadata(
+            prepared_data_for_primary_endpoints, paths['tables'], paths[
+                'reports'], "mri_acquisition_metadata_for_all_cases.xlsx",
+            "acquisition_parameters_for_primary_endpoints_cases.log")
 
         save_dataframe_to_excel(
-            prepared_data_for_all_cases, paths['tables'] / "original_prepared_data_for_feasability_and_safety.xlsx")
+            prepared_data_for_primary_endpoints, paths['tables'] / "original_prepared_data_for_primary_endpoints.xlsx")
+
+        # Extract, integrate, and save MRI acquisition metadata for the cases used in secondary endpoint analysis
+        prepared_data_for_secondary_endpoint = integrate_mri_metadata(
+            prepared_data_for_secondary_endpoint, paths['tables'], paths[
+                'reports'], "mri_acquisition_metadata.xlsx",
+            "acquisition_parameters_secondary_endpoint.log")
+
+        save_dataframe_to_excel(
+            prepared_data_for_secondary_endpoint, paths['tables'] / "original_prepared_data_secondary_endpoint.xlsx")
 
         # Step 3: Generate characteristics statistics
         logging.info("Step 3: Generating characteristics statistics...")
+
+        # Generate characteristics statistics for piloting phase cases
         generate_characteristics_statistics(
-            prepared_data, paths['reports'] / "characteristics_statistics.log")
+            prepared_data_for_piloting_phase, paths['reports'] / "characteristics_statistics_piloting_phase_cases.log")
+
+        # Generate characteristics statistics for primary endpoints
+        generate_characteristics_statistics(
+            prepared_data_for_primary_endpoints, paths['reports'] / "characteristics_statistics_primary_endpoints.log")
+
+        # Generate characteristics statistics for secondary endpoint
+        generate_characteristics_statistics(
+            prepared_data_for_secondary_endpoint, paths['reports'] / "characteristics_statistics_secondary_endpoint.log")
 
         # Step 4: Generate findings statistics
         logging.info("Step 4: Generating findings statistics...")
+
+        # Generate findings statistics for piloting phase cases
+        generate_findings_statistics(prepared_data_for_piloting_phase, paths['reports'] /
+                                     "original_findings_statistics_piloting_phase_case.log")
+
+        # Generate findings statistics for secondary endpoint
         original_findings_statistics = generate_findings_statistics(
-            prepared_data, paths['reports'] /
-            "original_findings_statistics.log"
-        )
+            prepared_data_for_secondary_endpoint, paths['reports'] /
+            "original_findings_statistics_secondary_endpoint.log")
 
         # Step 5: Analyze feasibility
         logging.info("Step 5: Analyzing feasibility...")
+
+        # Analyze feasibility for piloting phase cases
         analyze_feasibility(
-            prepared_data_for_all_cases,
-            paths['reports'] / "feasibility_analysis.log")
+            prepared_data_for_piloting_phase,
+            paths['reports'] / "feasibility_analysis_piloting_phase_cases.log")
+
+        # Analyze feasibility for primary endpoints
+        analyze_feasibility(
+            prepared_data_for_primary_endpoints,
+            paths['reports'] / "feasibility_analysis_primary_endpoints.log")
 
         # Step 6: Analyze safety
         logging.info("Step 6: Analyzing safety...")
-        analyze_safety(prepared_data_for_all_cases,
-                       paths['reports'] / "safety_analysis.log")
+        # Analyze safety for piloting phase cases
+        analyze_safety(prepared_data_for_piloting_phase,
+                       paths['reports'] / "safety_analysis_piloting_phase_cases.log")
+
+        # Analyze safety for primary endpoints
+        analyze_safety(prepared_data_for_primary_endpoints,
+                       paths['reports'] / "safety_analysis_primary_endpoints.log")
 
         # Step 7: Evaluate patient-level performance
         logging.info("Step 7: Evaluating patient-level performance...")
@@ -188,7 +230,7 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         # Step 8: Evaluate lesion-level performance
         logging.info("Step 8: Evaluating lesion-level performance...")
         lesions_df, _ = evaluate_lesion_level_performance(
-            prepared_data, operating_points, paths['reports'] /
+            prepared_data_for_secondary_endpoint, operating_points, paths['reports'] /
             "lesion_performance.log", paths['plots']
         )
         save_dataframe_to_excel(
@@ -197,7 +239,7 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         # Step 9: Generate adjusted statistics
         logging.info("Step 9: Generating adjusted descriptive statistics...")
         prepared_adjusted_data, prepared_adjusted_data_full = prepare_adjusted_data(
-            prepared_data, operating_points['Optimized thd']
+            prepared_data_for_secondary_endpoint, operating_points['Optimized thd']
         )
         save_dataframe_to_excel(prepared_adjusted_data,
                                 paths['tables'] / "adjusted_prepared_data.xlsx")

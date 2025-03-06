@@ -502,7 +502,7 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
                             f"    95% Confidence Interval: ({ci[0]:.2f}%, {ci[1]:.2f}%)\n")
                     if metric_name == "FPPI":
                         patient_count = len(
-                            np.unique(lesions_df['Patient_ID']))
+                            np.unique(prepared_data['PatientID']))
                         ci_fppi = calculate_confidence_interval(
                             metric_value * 100, patient_count)
                         log.write(
@@ -528,7 +528,7 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
                             f"    95% Confidence Interval: ({ci[0]:.2f}%, {ci[1]:.2f}%)\n")
                     if metric_name == "FPPI":
                         patient_count = len(
-                            np.unique(lesions_df['Patient_ID']))
+                            np.unique(prepared_data['PatientID']))
                         ci_fppi = calculate_confidence_interval(
                             metric_value * 100, patient_count)
                         log.write(
@@ -555,7 +555,7 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
                             f"    95% Confidence Interval: ({ci[0]:.2f}%, {ci[1]:.2f}%)\n")
                     if metric_name == "FPPI":
                         patient_count = len(
-                            np.unique(lesions_df['Patient_ID']))
+                            np.unique(prepared_data['PatientID']))
                         ci_fppi = calculate_confidence_interval(
                             metric_value * 100, patient_count)
                         log.write(
@@ -582,7 +582,7 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
                             f"    95% Confidence Interval: ({ci[0]:.2f}%, {ci[1]:.2f}%)\n")
                     if metric_name == "FPPI":
                         patient_count = len(
-                            np.unique(lesions_df['Patient_ID']))
+                            np.unique(prepared_data['PatientID']))
                         ci_fppi = calculate_confidence_interval(
                             metric_value * 100, patient_count)
                         log.write(

@@ -39,7 +39,7 @@ def get_paths():
 
 if __name__ == "__main__":
     setup_logging()
-    logging.info(">> Starting POT Study analysis pipeline...")
+    logging.info(">> Starting PROVIZ POT Study analysis pipeline...")
 
     try:
         # Load paths
@@ -52,11 +52,13 @@ if __name__ == "__main__":
             paths["scans_dir"]
         )
 
-        # Patient exclusions
-        # Exclude patients with overall (from preliminary phase or if they withdrew consent)
-        exclude_patient_ids = ['POT0001', 'POT0002', 'POT0003', 'POT0004', 'POT0005', 'POT0006',
-                               'POT0007', 'POT0008', 'POT0009', 'POT0010', 'POT0011', 'POT0012', 'POT0013',
-                               'POT0034', 'POT0054', 'POT0070', 'POT0075', 'POT0078']
+        # Patient IDs
+        # Patients from piloting phase
+        patient_piloting_phase_ids = ['POT0001', 'POT0002', 'POT0003', 'POT0004', 'POT0005', 'POT0006',
+                                      'POT0007', 'POT0008', 'POT0009', 'POT0010', 'POT0011', 'POT0012', 'POT0013']
+        # Patients withdrew consent
+        patient_withdrew_consent_ids = [
+            'POT0011', 'POT0034', 'POT0054', 'POT0070', 'POT0075', 'POT0078']
         # Exclude patients from performance analysis (for not following the study protocol)
         exclude_patient_performance_ids = ['POT0050']
         # Cases to be exception from the exclusion
@@ -74,7 +76,8 @@ if __name__ == "__main__":
             ai_score_path=str(paths["ai_score_path"]),
             scans_dir=str(paths["scans_dir"]),
             output_dir=str(paths["output_dir"]),
-            exclude_patient_ids=exclude_patient_ids,
+            patient_piloting_phase_ids=patient_piloting_phase_ids,
+            patient_withdrew_consent_ids=patient_withdrew_consent_ids,
             exclude_patient_performance_ids=exclude_patient_performance_ids,
             exception_patient_ids=exception_patient_ids,
             additional_technical_issues_ids=additional_technical_issues_ids
