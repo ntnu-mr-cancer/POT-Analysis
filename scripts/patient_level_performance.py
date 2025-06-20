@@ -213,8 +213,8 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
     plt.plot([0, 1], [0, 1], 'k--')
     plt.title(
         'ROC Curves for AI, Radiologist, and Combined Methods with Operating Points')
-    plt.xlabel('False Positive Rate (1-Specificity)')
-    plt.ylabel('True Positive Rate (Sensitivity)')
+    plt.xlabel('False-Positive Rate (1-Specificity)')
+    plt.ylabel('True-Positive Rate (Sensitivity)')
     plt.legend(loc='lower right', frameon=True)
     plt.savefig(f'{output_dir}/roc_ai_radiologist_combined.png')
     plt.close()
@@ -238,9 +238,9 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
 
     # Finalize additional plot
     plt.plot([0, 1], [0, 1], 'k--')
-    plt.title('Participant-level ROC curve for software and radiologist')
-    plt.xlabel('False Positive Rate (1-Specificity)')
-    plt.ylabel('True Positive Rate (Sensitivity)')
+    plt.title('Patient-level ROC curve for software and radiologist')
+    plt.xlabel('False-Positive Rate (1-Specificity)')
+    plt.ylabel('True-Positive Rate (Sensitivity)')
     plt.legend(loc='lower right', frameon=True)
     plt.savefig(f'{output_dir}/roc_ai_selected_operating_points.png')
     plt.close()

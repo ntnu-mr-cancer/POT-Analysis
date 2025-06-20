@@ -243,8 +243,8 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
         plt.scatter(avg_fp_op_or, sensitivity_op_or, s=100,
                     label=f'R@PIRADS≥3 OR AI@{threshold}', marker='x', color='g')
 
-    plt.xlabel('Average Number of False Positives per Patient (FPPI)')
-    plt.ylabel('Sensitivity (True Positive Rate)')
+    plt.xlabel('Average Number of False-Positives per Patient (FPPI)')
+    plt.ylabel('Sensitivity (True-Positive Rate)')
     plt.title('FROC Curve - AI, AI and Radiologist, AI or Radiologist')
     plt.legend(loc='lower right', frameon=True)
     plt.savefig(
@@ -289,8 +289,8 @@ def evaluate_lesion_level_performance(prepared_data, operating_points, log_file=
     plt.scatter(avg_fp_op, sensitivity_op, s=100,
                 label=f'Radiologist @ {label}', marker='^', color='g')
 
-    plt.xlabel('Average Number of False Positives per Patient (FPPI)')
-    plt.ylabel('Sensitivity (True Positive Rate)')
+    plt.xlabel('Average Number of False-Positives per Patient (FPPI)')
+    plt.ylabel('Sensitivity (True Positive-Rate)')
     plt.title('Lesion-level FROC Curve for software and radiologist')
     plt.legend(loc='lower right', frameon=True)
     plt.savefig(
