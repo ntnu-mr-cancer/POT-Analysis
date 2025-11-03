@@ -80,7 +80,7 @@ Analysis output data saved in **`results/`**. The subdolsers are:
 - **`scripts/safety_analysis.py`**: Analyses AI safety.
 - **`scripts/patient_level_performance.py`**: Analyse patient-level performance.
 - **`scripts/lesion_performance.py`**: Analyse lesion-level performance.
-- **`scripts/comparison.py`**: Performs statistical comparisions.
+- **`scripts/comparison.py`**: Performs additional statistical comparisions.
 - **`scripts/utils.py`**: General utilities.
 - **`data/scans/`**: Contains the input bpMRI scans folders.
 - **`data/sheets/`**: Contains the input exported clinical excel sheets from eForsk (eCRFs).

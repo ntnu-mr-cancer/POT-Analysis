@@ -250,8 +250,8 @@ def run_analysis_pipeline(data_path, clinical_metadata_path, radiology_metadata_
         adjusted_findings_statistics = generate_findings_statistics(
             prepared_adjusted_data, paths['reports'] / "adjusted_findings_statistics.log")
 
-        # Step 10: Run statistical comparisons
-        logging.info("Step 10: Running statistical comparisons...")
+        # Step 10: Run additional statistical comparisons
+        logging.info("Step 10: Running additional statistical comparisons...")
         run_comparisons(
             original_findings_statistics, adjusted_findings_statistics,
             paths['reports'] / "comparisons_results.log"
