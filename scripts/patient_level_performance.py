@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scripts.utils import delong_roc_test, calculate_confidence_interval, bootstrap_auc_ci
 from sklearn.metrics import roc_curve, auc, confusion_matrix, accuracy_score, precision_score, f1_score
 from datetime import datetime
+from statsmodels.stats.contingency_tables import mcnemar
 
 
 def evaluate_patient_level_performance(original_findings_statistics, log_file="patient_level_performance.log", output_dir='plots', alpha=0.5):
@@ -115,10 +116,93 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
     roc_data["AI"]["Operating Points"] = {}
     for op_name, threshold in operating_points.items():
         if threshold is not None:
+            # ensure AI predictions are positional (numpy) to avoid label-based indexing issues
             ai_predictions = (highest_ai_score >= threshold).astype(int)
+            if hasattr(ai_predictions, "to_numpy"):
+                ai_predictions = ai_predictions.to_numpy()
             metrics = calculate_metrics(ground_truth, ai_predictions)
             metrics['Threshold'] = threshold
             roc_data["AI"]["Operating Points"][(op_name, threshold)] = metrics
+
+    # Perform McNemar tests for Specificity and Accuracy between AI operating points
+    # and Radiologist at PIRADS >=3 and PIRADS >=4. Store p-values in roc_data and
+    # prepare printable summary.
+    mcnemar_results = []
+
+    def contingency_from_bool(a_bool, b_bool):
+        # table: [[both_true, a_true_b_false],[a_false_b_true, both_false]]
+        both_true = np.sum(np.logical_and(a_bool, b_bool))
+        a_true_b_false = np.sum(np.logical_and(a_bool, np.logical_not(b_bool)))
+        a_false_b_true = np.sum(np.logical_and(np.logical_not(a_bool), b_bool))
+        both_false = np.sum(np.logical_and(
+            np.logical_not(a_bool), np.logical_not(b_bool)))
+        return np.array([[both_true, a_true_b_false], [a_false_b_true, both_false]])
+
+    for op_name, threshold in operating_points.items():
+        if threshold is None:
+            continue
+        # ensure AI predictions are numpy (positional) not pandas Series (label-based)
+        ai_predictions = (highest_ai_score >= threshold).astype(int)
+        if hasattr(ai_predictions, "to_numpy"):
+            ai_predictions = ai_predictions.to_numpy()
+
+        # Specificity: restrict to negatives (ground_truth == 0)
+        neg_idx = np.where(np.array(ground_truth) == 0)[0]
+        if len(neg_idx) > 0:
+            ai_neg = (ai_predictions[neg_idx] == 0)
+            radiologist_3_neg = (
+                radiologist_binary_predictions_3[neg_idx] == 0)
+            radiologist_4_neg = (
+                radiologist_binary_predictions_4[neg_idx] == 0)
+
+            table_specificity_3 = contingency_from_bool(
+                ai_neg, radiologist_3_neg)
+            table_specificity_4 = contingency_from_bool(
+                ai_neg, radiologist_4_neg)
+
+            # McNemar test (use exact test when sum of discordant pairs < 25)
+            discordant_sum_specificity_3 = table_specificity_3[0,
+                                                               1] + table_specificity_3[1, 0]
+            discordant_sum_specificity_4 = table_specificity_4[0,
+                                                               1] + table_specificity_4[1, 0]
+            mcnemar_result_specificity_3 = mcnemar(
+                table_specificity_3, exact=(discordant_sum_specificity_3 < 25))
+            mcnemar_result_specificity_4 = mcnemar(
+                table_specificity_4, exact=(discordant_sum_specificity_4 < 25))
+        else:
+            mcnemar_result_specificity_3 = mcnemar_result_specificity_3 = None
+
+        # Accuracy: compare correctness across all cases
+        ai_correct = (ai_predictions == np.array(ground_truth))
+
+        radiologist_3_correct = (radiologist_binary_predictions_3 ==
+                                 np.array(ground_truth))
+        radiologist_4_correct = (radiologist_binary_predictions_4 ==
+                                 np.array(ground_truth))
+
+        table_accuracy_3 = contingency_from_bool(
+            ai_correct, radiologist_3_correct)
+        table_accuracy_4 = contingency_from_bool(
+            ai_correct, radiologist_4_correct)
+
+        # Use exact test when sum of discordant pairs < 25
+        discordant_sum_accuracy_3 = table_accuracy_3[0,
+                                                     1] + table_accuracy_3[1, 0]
+        discordant_sum_accuracy_4 = table_accuracy_4[0,
+                                                     1] + table_accuracy_4[1, 0]
+        mcnemar_result_accuracy_3 = mcnemar(
+            table_accuracy_3, exact=(discordant_sum_accuracy_3 < 25))
+        mcnemar_result_accuracy_4 = mcnemar(
+            table_accuracy_4, exact=(discordant_sum_accuracy_4 < 25))
+
+        # Store McNemar results only for final summary
+        mcnemar_results.append({
+            'operating_point': (op_name, threshold),
+            'specificity_vs_pirads3_p': mcnemar_result_specificity_3.pvalue,
+            'specificity_vs_pirads4_p': mcnemar_result_specificity_4.pvalue,
+            'accuracy_vs_pirads3_p': mcnemar_result_accuracy_3.pvalue,
+            'accuracy_vs_pirads4_p': mcnemar_result_accuracy_4.pvalue,
+        })
 
     # Log metrics for Both_AI_and_Radiologist_Score at specific operating points
     roc_data["Both_AI_and_Radiologist_Score"] = {}
@@ -274,9 +358,25 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
             for op_name, metrics in roc_data["AI"]["Operating Points"].items():
                 log.write(f"  Operating Point: {op_name}\n")
                 for metric_name, metric_value in metrics.items():
-                    log.write(f"    {metric_name}: {metric_value:.4f}\n")
-                    # Add 95% CI for percentage metrics
-                    if metric_name in metric_name_list:
+                    # Safely format numeric values, otherwise represent the object
+                    if isinstance(metric_value, (int, float, np.floating, np.integer)):
+                        log.write(f"    {metric_name}: {metric_value:.4f}\n")
+                    elif isinstance(metric_value, (list, tuple, np.ndarray)):
+                        log.write(f"    {metric_name}: {list(metric_value)}\n")
+                    elif isinstance(metric_value, dict):
+                        log.write(f"    {metric_name}:\n")
+                        for k, v in metric_value.items():
+                            try:
+                                if isinstance(v, (int, float, np.floating, np.integer)):
+                                    log.write(f"      {k}: {v:.4f}\n")
+                                else:
+                                    log.write(f"      {k}: {v}\n")
+                            except Exception:
+                                log.write(f"      {k}: {v}\n")
+                    else:
+                        log.write(f"    {metric_name}: {metric_value}\n")
+                    # Add 95% CI for percentage metrics (only if numeric)
+                    if metric_name in metric_name_list and isinstance(metric_value, (int, float, np.floating, np.integer)):
                         total_cases = metrics["Positives Count"] + \
                             metrics["Negatives Count"]
                         ci = calculate_confidence_interval(
@@ -293,9 +393,12 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
         # Log metrics for Radiologists at PIRADS thresholds
         log.write(f"\nSource: Radiologist @ PIRADS 3\n")
         for metric_name, metric_value in roc_data["Radiologist @ PIRADS ≥ 3"].items():
-            log.write(f"  {metric_name}: {metric_value:.4f}\n")
+            if isinstance(metric_value, (int, float, np.floating, np.integer)):
+                log.write(f"  {metric_name}: {metric_value:.4f}\n")
+            else:
+                log.write(f"  {metric_name}: {metric_value}\n")
             # Add 95% CI for percentage metrics
-            if metric_name in metric_name_list:
+            if metric_name in metric_name_list and isinstance(metric_value, (int, float, np.floating, np.integer)):
                 total_cases = metrics_radiologist_3["Positives Count"] + \
                     metrics_radiologist_3["Negatives Count"]
                 ci = calculate_confidence_interval(
@@ -305,9 +408,12 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
 
         log.write(f"\nSource: Radiologist @ PIRADS 4\n")
         for metric_name, metric_value in roc_data["Radiologist @ PIRADS ≥ 4"].items():
-            log.write(f"  {metric_name}: {metric_value:.4f}\n")
+            if isinstance(metric_value, (int, float, np.floating, np.integer)):
+                log.write(f"  {metric_name}: {metric_value:.4f}\n")
+            else:
+                log.write(f"  {metric_name}: {metric_value}\n")
             # Add 95% CI for percentage metrics
-            if metric_name in metric_name_list:
+            if metric_name in metric_name_list and isinstance(metric_value, (int, float, np.floating, np.integer)):
                 total_cases = metrics_radiologist_4["Positives Count"] + \
                     metrics_radiologist_4["Negatives Count"]
                 ci = calculate_confidence_interval(
@@ -321,19 +427,52 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
             for op_name, metrics in roc_data[method_label].items():
                 log.write(f"  Operating Point: {op_name}\n")
                 for metric_name, metric_value in metrics.items():
-                    log.write(f"    {metric_name}: {metric_value:.4f}\n")
-                    # Add 95% CI for percentage metrics
-                    if metric_name in metric_name_list:
+                    # Safely format numeric values, otherwise represent the object
+                    if isinstance(metric_value, (int, float, np.floating, np.integer)):
+                        log.write(f"    {metric_name}: {metric_value:.4f}\n")
+                    elif isinstance(metric_value, (list, tuple, np.ndarray)):
+                        log.write(f"    {metric_name}: {list(metric_value)}\n")
+                    elif isinstance(metric_value, dict):
+                        log.write(f"    {metric_name}:\n")
+                        for k, v in metric_value.items():
+                            try:
+                                if isinstance(v, (int, float, np.floating, np.integer)):
+                                    log.write(f"      {k}: {v:.4f}\n")
+                                else:
+                                    log.write(f"      {k}: {v}\n")
+                            except Exception:
+                                log.write(f"      {k}: {v}\n")
+                    else:
+                        log.write(f"    {metric_name}: {metric_value}\n")
+                    # Add 95% CI for percentage metrics (only if numeric)
+                    if metric_name in metric_name_list and isinstance(metric_value, (int, float, np.floating, np.integer)):
                         total_cases = metrics["Positives Count"] + \
                             metrics["Negatives Count"]
                         ci = calculate_confidence_interval(
                             metric_value * 100, total_cases)
                         log.write(
                             f"    95% Confidence Interval: ({ci[0]:.2f}%, {ci[1]:.2f}%)\n")
-
         # Log DeLong's test p-value
         log.write(
-            f"\nDeLong's test p-value comparing AI and Radiologist: {p_value:.4f}\n")
+            f"\nDeLong's test p-value comparing AI and Radiologist: {p_value:.4f}\n\n")
+        # Log McNemar results for AI operating points vs Radiologist
+        log.write(
+            "McNemar tests for AI operating points vs Radiologist (Specificity & Accuracy):\n")
+        for result in mcnemar_results:
+            op_name, threshold = result['operating_point']
+            log.write(
+                f"  Operating Point: {op_name} (threshold={threshold})\n")
+            # Round p-values to 4 digits
+            log.write(
+                f"    Specificity vs @PIRADS3 p-value: {result['specificity_vs_pirads3_p']:.4f}\n")
+
+            log.write(
+                f"    Specificity vs @PIRADS4 p-value: {result['specificity_vs_pirads4_p']:.4f}\n")
+
+            log.write(
+                f"    Accuracy vs @PIRADS3 p-value: {result['accuracy_vs_pirads3_p']:.4f}\n")
+            log.write(
+                f"    Accuracy vs @PIRADS4 p-value: {result['accuracy_vs_pirads4_p']:.4f}\n")
         log.write("-------------------------------------------------\n")
 
     return roc_data, operating_points
