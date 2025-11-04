@@ -1,87 +1,79 @@
 from sklearn.utils import resample
 from math import sqrt
 import numpy as np
-from sklearn.metrics import roc_auc_score, roc_curve, auc, average_precision_score
+from sklearn.metrics import roc_curve, auc, average_precision_score
 from scipy.stats import norm
-
-
-def compute_midrank(x):
-    """Computes midranks."""
-    J = np.argsort(x)
-    Z = x[J]
-    N = len(x)
-    T = np.zeros(N, dtype=np.float64)
-    i = 0
-    while i < N:
-        j = i
-        while j < N and Z[j] == Z[i]:
-            j += 1
-        T[i:j] = 0.5*(i + j - 1)
-        i = j
-    return T
-
-
-def fastDeLong(predictions_sorted_transposed, label_1_count):
-    """Fast implementation of DeLong's method for computing AUC variances."""
-    m = label_1_count  # Number of positive samples
-    # Number of negative samples
-    n = predictions_sorted_transposed.shape[1] - m
-
-    # Extract the positive and negative examples for both sets of predictions
-    positive_examples = predictions_sorted_transposed[:, :m]
-    negative_examples = predictions_sorted_transposed[:, m:]
-
-    # Calculate midranks for positive and negative examples
-    tx = np.zeros(m)
-    ty = np.zeros(n)
-    tz = np.zeros(m + n)
-
-    for r in range(predictions_sorted_transposed.shape[0]):
-        tx += compute_midrank(positive_examples[r, :])
-        ty += compute_midrank(negative_examples[r, :])
-        tz += compute_midrank(predictions_sorted_transposed[r, :])
-
-    # Normalize midranks
-    tx /= m
-    ty /= n
-    tz /= (m + n)
-
-    # The lengths of tx and ty should be consistent with tz
-    aucs = tz - (np.concatenate([tx, ty]) / 2)
-    auc_cov = aucs.var(ddof=1)
-
-    return auc_cov
+from statsmodels.stats.contingency_tables import mcnemar
 
 
 def delong_roc_test(ground_truth, predictions_one, predictions_two):
-    """Performs DeLong's test for comparing two ROC AUCs."""
-    auc_one = roc_auc_score(ground_truth, predictions_one)
-    auc_two = roc_auc_score(ground_truth, predictions_two)
+    """
+    DeLong test for two correlated ROC AUCs (same subjects).
+    Returns: two-sided p-value (float).
+    """
+    y = np.asarray(ground_truth, dtype=int)
+    s1 = np.asarray(predictions_one, dtype=float)
+    s2 = np.asarray(predictions_two, dtype=float)
 
-    # Convert to numpy arrays for NumPy-based indexing
-    ground_truth_np = np.array(ground_truth)
-    predictions_one_np = np.array(predictions_one)
-    predictions_two_np = np.array(predictions_two)
+    if y.ndim != 1 or s1.ndim != 1 or s2.ndim != 1:
+        raise ValueError("All inputs must be 1-D arrays.")
+    if not (len(y) == len(s1) == len(s2)):
+        raise ValueError("Arrays must have the same length.")
+    if y.min() == y.max():
+        raise ValueError("ground_truth must contain both classes 0 and 1.")
 
-    # Sort predictions_one and use the order for both predictions
-    order = np.argsort(-predictions_one_np)
-    predictions_sorted = np.vstack(
-        (predictions_one_np[order], predictions_two_np[order]))
-    ground_truth_sorted = ground_truth_np[order]
+    def _midrank(x):
+        J = np.argsort(x)
+        Z = x[J]
+        N = len(x)
+        T = np.zeros(N, dtype=float)
+        i = 0
+        while i < N:
+            j = i
+            while j < N and Z[j] == Z[i]:
+                j += 1
+            # midrank over the tie block [i, j)
+            T[i:j] = 0.5 * (i + j - 1) + 1.0
+            i = j
+        out = np.empty(N, dtype=float)
+        out[J] = T
+        return out
 
-    # Count of positive labels after sorting
-    label_1_count = np.sum(ground_truth_sorted)
+    # sort so positives (1) come first, as required by DeLong derivation
+    order = np.argsort(-y)
+    y_sorted = y[order]
+    m = int(y_sorted.sum())
+    n = len(y_sorted) - m
 
-    # Ensure that label_1_count is consistent between predictions
-    if predictions_sorted.shape[1] != len(ground_truth_sorted):
-        raise ValueError(
-            "Mismatch between number of samples in predictions and ground truth")
+    preds_sorted_T = np.vstack([s1[order], s2[order]])  # shape (2, m+n)
+    pos = preds_sorted_T[:, :m]
+    neg = preds_sorted_T[:, m:]
 
-    auc_cov = fastDeLong(predictions_sorted, label_1_count)
+    # midranks
+    tx = np.vstack([_midrank(pos[r]) for r in range(2)])     # (2, m)
+    ty = np.vstack([_midrank(neg[r]) for r in range(2)])     # (2, n)
+    tz = np.vstack([_midrank(preds_sorted_T[r]) for r in range(2)])  # (2, m+n)
 
-    z = (auc_one - auc_two) / np.sqrt(np.abs(auc_cov))
-    p_value = 2 * (1 - norm.cdf(np.abs(z)))
-    return p_value
+    # AUCs via rank formula
+    aucs = (tz[:, :m].sum(axis=1) - m * (m + 1) / 2.0) / (m * n)
+
+    # DeLong covariance components
+    v01 = (tz[:, :m] - tx) / n              # (2, m)
+    v10 = 1.0 - (tz[:, m:] - ty) / m        # (2, n)
+
+    s01 = np.cov(v01, bias=False)           # (2, 2)
+    s10 = np.cov(v10, bias=False)           # (2, 2)
+    cov = s01 / m + s10 / n                 # (2, 2)
+
+    # variance of AUC difference (model1 - model2)
+    diff = aucs[0] - aucs[1]
+    var = cov[0, 0] + cov[1, 1] - 2.0 * cov[0, 1]
+    if var <= 0:
+        var = np.finfo(float).eps  # numerical guard for tiny/identical cases
+
+    z = diff / np.sqrt(var)
+    p = 2.0 * (1.0 - norm.cdf(abs(z)))
+    return float(p)
 
 
 def calculate_confidence_interval(proportion, total_cases, z=1.96):
@@ -175,3 +167,69 @@ def bootstrap_ap_ci(ground_truth, scores, n_bootstraps=1000, ci=95):
     lower_bound = np.percentile(bootstrapped_scores, (100 - ci) / 2)
     upper_bound = np.percentile(bootstrapped_scores, 100 - (100 - ci) / 2)
     return lower_bound, upper_bound
+
+
+def perform_mcnemar_test_specificity_accuracy(ground_truth, ai_predictions, radiologist_predictions, pirads_threshold):
+    """
+    Perform McNemar tests comparing AI predictions with radiologist predictions at a specific PIRADS threshold.
+
+    Args:
+        ground_truth (array-like): Ground truth labels (0/1)
+        ai_predictions (array-like): AI binary predictions (0/1)
+        radiologist_predictions (array-like): Radiologist binary predictions (0/1)
+        pirads_threshold (int): PIRADS threshold used (3 or 4) - for logging purposes
+
+    Returns:
+        dict: Dictionary containing p-values for specificity and accuracy comparisons
+    """
+    def contingency_from_bool(a_bool, b_bool):
+        both_true = np.sum(np.logical_and(a_bool, b_bool))
+        a_true_b_false = np.sum(np.logical_and(a_bool, np.logical_not(b_bool)))
+        a_false_b_true = np.sum(np.logical_and(np.logical_not(a_bool), b_bool))
+        both_false = np.sum(np.logical_and(
+            np.logical_not(a_bool), np.logical_not(b_bool)))
+        return np.array([[both_true, a_true_b_false], [a_false_b_true, both_false]])
+
+    results = {}
+
+    # Specificity calculation (for negative cases only)
+    neg_idx = np.where(np.array(ground_truth) == 0)[0]
+    if len(neg_idx) > 0:
+        ai_neg = (ai_predictions[neg_idx] == 0)
+        rad_neg = (radiologist_predictions[neg_idx] == 0)
+
+        table_specificity = contingency_from_bool(ai_neg, rad_neg)
+
+        # Calculate discordant pairs
+        false_specificity = int(table_specificity[0, 1])
+        true_specificity = int(table_specificity[1, 0])
+        use_exact = (false_specificity + true_specificity) < 25 or min(
+            false_specificity, true_specificity) < 10
+
+        mcnemar_result = mcnemar(
+            table_specificity,
+            exact=use_exact,
+            correction=not use_exact
+        )
+        results[f'specificity_vs_pirads{pirads_threshold}_p'] = mcnemar_result.pvalue
+
+    # Accuracy calculation
+    table_accuracy = contingency_from_bool(
+        ai_predictions == ground_truth,
+        radiologist_predictions == ground_truth
+    )
+
+    # Calculate discordant pairs
+    false_accuracy = int(table_accuracy[0, 1])
+    true_accuracy = int(table_accuracy[1, 0])
+    use_exact = (false_accuracy +
+                 true_accuracy) < 25 or min(false_accuracy, true_accuracy) < 10
+
+    mcnemar_result = mcnemar(
+        table_accuracy,
+        exact=use_exact,
+        correction=not use_exact
+    )
+    results[f'accuracy_vs_pirads{pirads_threshold}_p'] = mcnemar_result.pvalue
+
+    return results

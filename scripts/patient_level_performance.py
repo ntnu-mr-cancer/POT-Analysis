@@ -7,10 +7,9 @@ Author: Mohammed R. S. Sunoqrot
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from scripts.utils import delong_roc_test, calculate_confidence_interval, bootstrap_auc_ci
+from scripts.utils import delong_roc_test, calculate_confidence_interval, bootstrap_auc_ci, perform_mcnemar_test_specificity_accuracy
 from sklearn.metrics import roc_curve, auc, confusion_matrix, accuracy_score, precision_score, f1_score
 from datetime import datetime
-from statsmodels.stats.contingency_tables import mcnemar
 
 
 def evaluate_patient_level_performance(original_findings_statistics, log_file="patient_level_performance.log", output_dir='plots', alpha=0.5):
@@ -124,84 +123,37 @@ def evaluate_patient_level_performance(original_findings_statistics, log_file="p
             metrics['Threshold'] = threshold
             roc_data["AI"]["Operating Points"][(op_name, threshold)] = metrics
 
-    # Perform McNemar tests for Specificity and Accuracy between AI operating points
-    # and Radiologist at PIRADS >=3 and PIRADS >=4. Store p-values in roc_data and
-    # prepare printable summary.
+    # Perform McNemar tests
     mcnemar_results = []
-
-    def contingency_from_bool(a_bool, b_bool):
-        # table: [[both_true, a_true_b_false],[a_false_b_true, both_false]]
-        both_true = np.sum(np.logical_and(a_bool, b_bool))
-        a_true_b_false = np.sum(np.logical_and(a_bool, np.logical_not(b_bool)))
-        a_false_b_true = np.sum(np.logical_and(np.logical_not(a_bool), b_bool))
-        both_false = np.sum(np.logical_and(
-            np.logical_not(a_bool), np.logical_not(b_bool)))
-        return np.array([[both_true, a_true_b_false], [a_false_b_true, both_false]])
-
     for op_name, threshold in operating_points.items():
         if threshold is None:
             continue
-        # ensure AI predictions are numpy (positional) not pandas Series (label-based)
+
         ai_predictions = (highest_ai_score >= threshold).astype(int)
         if hasattr(ai_predictions, "to_numpy"):
             ai_predictions = ai_predictions.to_numpy()
 
-        # Specificity: restrict to negatives (ground_truth == 0)
-        neg_idx = np.where(np.array(ground_truth) == 0)[0]
-        if len(neg_idx) > 0:
-            ai_neg = (ai_predictions[neg_idx] == 0)
-            radiologist_3_neg = (
-                radiologist_binary_predictions_3[neg_idx] == 0)
-            radiologist_4_neg = (
-                radiologist_binary_predictions_4[neg_idx] == 0)
+        # Test vs PIRADS ≥3
+        mcnemar_result_3 = perform_mcnemar_test_specificity_accuracy(
+            ground_truth,
+            ai_predictions,
+            radiologist_binary_predictions_3,
+            pirads_threshold=3
+        )
 
-            table_specificity_3 = contingency_from_bool(
-                ai_neg, radiologist_3_neg)
-            table_specificity_4 = contingency_from_bool(
-                ai_neg, radiologist_4_neg)
+        # Test vs PIRADS ≥4
+        mcnemar_result_4 = perform_mcnemar_test_specificity_accuracy(
+            ground_truth,
+            ai_predictions,
+            radiologist_binary_predictions_4,
+            pirads_threshold=4
+        )
 
-            # McNemar test (use exact test when sum of discordant pairs < 25)
-            discordant_sum_specificity_3 = table_specificity_3[0,
-                                                               1] + table_specificity_3[1, 0]
-            discordant_sum_specificity_4 = table_specificity_4[0,
-                                                               1] + table_specificity_4[1, 0]
-            mcnemar_result_specificity_3 = mcnemar(
-                table_specificity_3, exact=(discordant_sum_specificity_3 < 25))
-            mcnemar_result_specificity_4 = mcnemar(
-                table_specificity_4, exact=(discordant_sum_specificity_4 < 25))
-        else:
-            mcnemar_result_specificity_3 = mcnemar_result_specificity_3 = None
-
-        # Accuracy: compare correctness across all cases
-        ai_correct = (ai_predictions == np.array(ground_truth))
-
-        radiologist_3_correct = (radiologist_binary_predictions_3 ==
-                                 np.array(ground_truth))
-        radiologist_4_correct = (radiologist_binary_predictions_4 ==
-                                 np.array(ground_truth))
-
-        table_accuracy_3 = contingency_from_bool(
-            ai_correct, radiologist_3_correct)
-        table_accuracy_4 = contingency_from_bool(
-            ai_correct, radiologist_4_correct)
-
-        # Use exact test when sum of discordant pairs < 25
-        discordant_sum_accuracy_3 = table_accuracy_3[0,
-                                                     1] + table_accuracy_3[1, 0]
-        discordant_sum_accuracy_4 = table_accuracy_4[0,
-                                                     1] + table_accuracy_4[1, 0]
-        mcnemar_result_accuracy_3 = mcnemar(
-            table_accuracy_3, exact=(discordant_sum_accuracy_3 < 25))
-        mcnemar_result_accuracy_4 = mcnemar(
-            table_accuracy_4, exact=(discordant_sum_accuracy_4 < 25))
-
-        # Store McNemar results only for final summary
+        # Combine results
         mcnemar_results.append({
             'operating_point': (op_name, threshold),
-            'specificity_vs_pirads3_p': mcnemar_result_specificity_3.pvalue,
-            'specificity_vs_pirads4_p': mcnemar_result_specificity_4.pvalue,
-            'accuracy_vs_pirads3_p': mcnemar_result_accuracy_3.pvalue,
-            'accuracy_vs_pirads4_p': mcnemar_result_accuracy_4.pvalue,
+            **mcnemar_result_3,
+            **mcnemar_result_4
         })
 
     # Log metrics for Both_AI_and_Radiologist_Score at specific operating points
